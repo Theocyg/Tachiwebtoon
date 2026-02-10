@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Xcode
+ios/build/
+ios/DerivedData/
+ios/*.xcworkspace
+ios/xcuserdata/
+ios/*.xcuserstate
+ios/.build/
+
+# App data
+.mangareaderclone/
+
+# OS
+Thumbs.db
+.DS_Store

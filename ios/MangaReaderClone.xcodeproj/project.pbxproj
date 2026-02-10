@@ -1,0 +1,22 @@
+// !$*UTF8*$!
+// Xcode project file for MangaReaderClone
+// Generated for use with Swift Package Manager dependencies
+//
+// INSTRUCTIONS:
+// 1. Open this directory in Xcode: File > Open > select the ios/ folder
+// 2. Or create a new Xcode project and add the files manually:
+//    a. File > New > Project > iOS > App
+//    b. Product Name: MangaReaderClone
+//    c. Interface: SwiftUI
+//    d. Language: Swift
+//    e. Add Swift Package dependencies via File > Add Package Dependencies:
+//       - https://github.com/scinfu/SwiftSoup.git
+//       - https://github.com/onevcat/Kingfisher.git
+//       - https://github.com/Alamofire/Alamofire.git
+//    f. Drag all .swift files from MangaReaderClone/ into the project
+//    g. Set deployment target to iOS 16.0
+//    h. Build and run
+//
+// NOTE: This is a placeholder. For a proper Xcode project, create it via
+// Xcode's project creation wizard, which generates the full pbxproj file.
+// The Swift source files are ready to be added to any Xcode project.
