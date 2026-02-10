@@ -112,14 +112,14 @@ class NetworkService:
             async with sem:
                 async with session.get(full_url, headers=headers) as response:
                     if response.status == 200:
-                        return await response.json()
+                        return await response.json(content_type=None)
                     elif response.status == 429:
                         retry_after = int(response.headers.get("Retry-After", "2"))
                         logger.warning(f"Rate limited on {domain}, waiting {retry_after}s")
                         await asyncio.sleep(retry_after)
                         async with session.get(full_url, headers=headers) as retry_resp:
                             if retry_resp.status == 200:
-                                return await retry_resp.json()
+                                return await retry_resp.json(content_type=None)
                     else:
                         logger.error(f"HTTP {response.status} for {full_url}")
                         return None
