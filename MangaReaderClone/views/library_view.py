@@ -240,16 +240,12 @@ class LibraryView(QWidget):
     def _on_manga_clicked(self, manga_id: str):
         """Open manga detail/chapter list view."""
         self.manga_selected.emit(manga_id)
-        # Open detail window
-        asyncio.ensure_future(self._open_manga_detail(manga_id))
-
-    async def _open_manga_detail(self, manga_id: str):
-        """Open the manga detail dialog."""
         from views.manga_detail_view import MangaDetailDialog
+        # Use show() instead of exec() to avoid blocking the async event loop
         dialog = MangaDetailDialog(manga_id, self.app, self)
-        dialog.exec()
-        # Refresh library in case changes were made
-        self.refresh()
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.finished.connect(lambda _: self.refresh())
+        dialog.show()
 
     def _on_manga_right_click(self, manga_id: str, pos):
         """Show context menu for a manga card."""

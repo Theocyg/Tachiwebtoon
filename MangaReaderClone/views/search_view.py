@@ -343,20 +343,9 @@ class SearchView(QWidget):
             logger.debug(f"Failed to load cover: {e}")
 
     def _on_manga_clicked(self, manga_id: str):
-        asyncio.ensure_future(self._open_manga_detail(manga_id))
-
-    async def _open_manga_detail(self, manga_id: str):
         from views.manga_detail_view import MangaDetailDialog
-
-        # First ensure we have the manga stored
-        source = self._get_selected_source()
-        if source:
-            try:
-                manga = await source.get_manga_details(manga_id)
-                manga.source_id = source.source_id
-                await self.app.db.upsert_manga(manga)
-            except Exception as e:
-                logger.error(f"Failed to get manga details: {e}")
-
+        # Use show() instead of exec() to avoid blocking the async event loop.
+        # exec() creates a nested event loop that conflicts with qasync tasks.
         dialog = MangaDetailDialog(manga_id, self.app, self)
-        dialog.exec()
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.show()

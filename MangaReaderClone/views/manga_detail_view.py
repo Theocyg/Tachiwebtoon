@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QImage
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -51,8 +51,8 @@ class MangaDetailDialog(QDialog):
 
         self._setup_ui()
 
-        # Load data
-        asyncio.ensure_future(self._load_data())
+        # Defer async loading to avoid task re-entrance with dialog.exec()
+        QTimer.singleShot(50, lambda: asyncio.ensure_future(self._load_data()))
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -293,10 +293,10 @@ class MangaDetailDialog(QDialog):
     def _on_chapter_double_click(self, item: QListWidgetItem):
         chapter_id = item.data(Qt.ItemDataRole.UserRole)
         if chapter_id:
-            asyncio.ensure_future(self._open_reader(chapter_id))
+            self._open_reader_sync(chapter_id)
 
-    async def _open_reader(self, chapter_id: str):
-        """Open the chapter reader."""
+    def _open_reader_sync(self, chapter_id: str):
+        """Open the chapter reader (non-blocking)."""
         from views.reader_view import ReaderDialog
 
         # Find the chapter
@@ -315,21 +315,30 @@ class MangaDetailDialog(QDialog):
             QMessageBox.warning(self, "Error", "Source not available")
             return
 
-        try:
-            pages = await source.get_page_list(chapter_id)
-            if not pages:
-                QMessageBox.warning(self, "Error", "No pages found for this chapter")
-                return
+        # Create and show reader (it loads pages async internally)
+        dialog = ReaderDialog(
+            manga_title=self.manga.title if self.manga else "",
+            chapter=chapter,
+            pages=[],  # will be loaded async inside the reader
+            chapters=self.chapters,
+            app_controller=self.app,
+            parent=self,
+        )
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.show()
 
-            dialog = ReaderDialog(
-                manga_title=self.manga.title if self.manga else "",
-                chapter=chapter,
-                pages=pages,
-                chapters=self.chapters,
-                app_controller=self.app,
-                parent=self,
-            )
-            dialog.exec()
-        except Exception as e:
-            logger.error(f"Failed to open reader: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to load chapter: {e}")
+        # Kick off page loading after the dialog is shown
+        async def _load_and_set_pages():
+            try:
+                pages = await source.get_page_list(chapter_id)
+                if pages:
+                    dialog.pages = pages
+                    await dialog._load_all_pages()
+                else:
+                    dialog.close()
+                    QMessageBox.warning(self, "Error", "No pages found for this chapter")
+            except Exception as e:
+                logger.error(f"Failed to load pages: {e}")
+                dialog.close()
+
+        asyncio.ensure_future(_load_and_set_pages())
