@@ -3,9 +3,10 @@
 import asyncio
 import logging
 from typing import Optional
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, quote
 
 import aiohttp
+from yarl import URL
 
 logger = logging.getLogger(__name__)
 
@@ -46,16 +47,23 @@ class NetworkService:
             return url
 
         # Handle list-valued params (e.g., includes[])
+        # URL-encode values but keep [] in keys as-is for API compatibility
         parts = []
         for key, value in params.items():
             if isinstance(value, list):
                 for v in value:
-                    parts.append(f"{key}={v}")
+                    encoded_v = quote(str(v), safe="")
+                    parts.append(f"{key}={encoded_v}")
             else:
-                parts.append(f"{key}={value}")
+                encoded_v = quote(str(value), safe="-_.~")
+                parts.append(f"{key}={encoded_v}")
 
         separator = "&" if "?" in url else "?"
         return f"{url}{separator}{'&'.join(parts)}"
+
+    def _make_url(self, url_str: str) -> URL:
+        """Create a yarl URL that preserves [] brackets (no re-encoding)."""
+        return URL(url_str, encoded=True)
 
     async def get(
         self,
@@ -65,6 +73,7 @@ class NetworkService:
     ) -> Optional[str]:
         """Perform a GET request and return response text."""
         full_url = self._build_url(url, params)
+        request_url = self._make_url(full_url)
 
         try:
             session = await self._get_session()
@@ -73,15 +82,14 @@ class NetworkService:
             sem = self._get_semaphore(domain)
 
             async with sem:
-                async with session.get(full_url, headers=headers) as response:
+                async with session.get(request_url, headers=headers) as response:
                     if response.status == 200:
                         return await response.text()
                     elif response.status == 429:
-                        # Rate limited, wait and retry once
                         retry_after = int(response.headers.get("Retry-After", "2"))
                         logger.warning(f"Rate limited on {domain}, waiting {retry_after}s")
                         await asyncio.sleep(retry_after)
-                        async with session.get(full_url, headers=headers) as retry_resp:
+                        async with session.get(request_url, headers=headers) as retry_resp:
                             if retry_resp.status == 200:
                                 return await retry_resp.text()
                     else:
@@ -102,6 +110,8 @@ class NetworkService:
     ) -> Optional[dict]:
         """Perform a GET request and return parsed JSON."""
         full_url = self._build_url(url, params)
+        request_url = self._make_url(full_url)
+        logger.debug(f"GET JSON: {full_url}")
 
         try:
             session = await self._get_session()
@@ -110,14 +120,14 @@ class NetworkService:
             sem = self._get_semaphore(domain)
 
             async with sem:
-                async with session.get(full_url, headers=headers) as response:
+                async with session.get(request_url, headers=headers) as response:
                     if response.status == 200:
                         return await response.json(content_type=None)
                     elif response.status == 429:
                         retry_after = int(response.headers.get("Retry-After", "2"))
                         logger.warning(f"Rate limited on {domain}, waiting {retry_after}s")
                         await asyncio.sleep(retry_after)
-                        async with session.get(full_url, headers=headers) as retry_resp:
+                        async with session.get(request_url, headers=headers) as retry_resp:
                             if retry_resp.status == 200:
                                 return await retry_resp.json(content_type=None)
                     else:
@@ -136,6 +146,7 @@ class NetworkService:
         headers: Optional[dict] = None,
     ) -> Optional[bytes]:
         """Download binary content (images, files)."""
+        request_url = self._make_url(url)
         try:
             session = await self._get_session()
             from urllib.parse import urlparse
@@ -143,7 +154,7 @@ class NetworkService:
             sem = self._get_semaphore(domain)
 
             async with sem:
-                async with session.get(url, headers=headers) as response:
+                async with session.get(request_url, headers=headers) as response:
                     if response.status == 200:
                         return await response.read()
                     else:

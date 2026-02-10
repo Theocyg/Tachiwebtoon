@@ -159,7 +159,18 @@ class MangaDexSource(MangaSource):
         return self._parse_manga(data["data"])
 
     async def get_chapter_list(self, manga_id: str) -> list[Chapter]:
-        """Get all English chapters for a manga."""
+        """Get chapters for a manga (prefers English, falls back to all languages)."""
+        # Try English first
+        chapters = await self._fetch_chapters(manga_id, lang="en")
+        if chapters:
+            return chapters
+
+        # Fallback: fetch all languages if no English chapters found
+        logger.info(f"No English chapters for {manga_id}, fetching all languages")
+        return await self._fetch_chapters(manga_id, lang=None)
+
+    async def _fetch_chapters(self, manga_id: str, lang: str | None = "en") -> list[Chapter]:
+        """Fetch chapters, optionally filtered by language."""
         chapters = []
         offset = 0
         limit = 100
@@ -169,12 +180,14 @@ class MangaDexSource(MangaSource):
         while True:
             params = {
                 "manga": manga_id,
-                "translatedLanguage[]": ["en"],
                 "limit": str(limit),
                 "offset": str(offset),
                 "order[chapter]": "desc",
                 "includes[]": ["scanlation_group"],
+                "contentRating[]": ["safe", "suggestive", "erotica"],
             }
+            if lang:
+                params["translatedLanguage[]"] = [lang]
 
             data = await network.get_json(f"{API_BASE}/chapter", params=params, headers=self.headers)
 
