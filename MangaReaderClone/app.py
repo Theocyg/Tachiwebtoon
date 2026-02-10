@@ -82,45 +82,39 @@ def main():
     app.setApplicationName("MangaReaderClone")
     app.setApplicationVersion("1.0.0")
 
-    # Set up async event loop integration with Qt
-    try:
-        import qasync
-        loop = qasync.QEventLoop(app)
-        asyncio.set_event_loop(loop)
-    except ImportError:
-        logger.warning("qasync not found, using basic asyncio integration")
-        loop = None
-
     # Create app controller
     controller = AppController()
 
-    if loop:
-        # Use qasync for proper Qt + asyncio integration
+    # Try qasync for proper Qt + asyncio integration
+    try:
+        import qasync
+
+        loop = qasync.QEventLoop(app)
+        asyncio.set_event_loop(loop)
+
+        # Initialize services synchronously before showing window
+        loop.run_until_complete(controller.initialize())
+
+        from views.main_window import MainWindow
+        window = MainWindow(controller)
+        window.show()
+
+        # Run the Qt event loop (qasync handles asyncio coroutines)
         with loop:
-            loop.run_until_complete(_run_app(app, controller))
-    else:
-        # Fallback: manual event loop integration
+            loop.run_forever()
+
+        # Cleanup after window closed
+        loop.run_until_complete(controller.shutdown())
+
+    except ImportError:
+        logger.warning("qasync not found, using threaded asyncio fallback")
         _run_app_sync(app, controller)
 
 
-async def _run_app(app: QApplication, controller: AppController):
-    """Run the app with proper async support via qasync."""
-    await controller.initialize()
-
-    from views.main_window import MainWindow
-    window = MainWindow(controller)
-    window.show()
-
-    # Run until app quits
-    await asyncio.get_event_loop().run_forever()
-    await controller.shutdown()
-
-
 def _run_app_sync(app: QApplication, controller: AppController):
-    """Run the app with basic sync/async integration (fallback)."""
+    """Fallback: run async tasks in a background thread."""
     import threading
 
-    # Run async init in a thread
     async_loop = asyncio.new_event_loop()
 
     def run_async_loop():
@@ -130,18 +124,17 @@ def _run_app_sync(app: QApplication, controller: AppController):
     async_thread = threading.Thread(target=run_async_loop, daemon=True)
     async_thread.start()
 
-    # Initialize controller
+    # Initialize controller in the async thread
     future = asyncio.run_coroutine_threadsafe(controller.initialize(), async_loop)
     future.result(timeout=10)
 
-    # Monkey-patch asyncio.ensure_future to use our loop
-    original_ensure_future = asyncio.ensure_future
-
+    # Patch asyncio.ensure_future so UI callbacks dispatch to the async thread
     def patched_ensure_future(coro, *, loop=None):
         if asyncio.iscoroutine(coro):
             return asyncio.run_coroutine_threadsafe(coro, async_loop)
-        return original_ensure_future(coro, loop=loop)
+        return asyncio.ensure_future.__wrapped__(coro, loop=loop)
 
+    patched_ensure_future.__wrapped__ = asyncio.ensure_future
     asyncio.ensure_future = patched_ensure_future
 
     from views.main_window import MainWindow
