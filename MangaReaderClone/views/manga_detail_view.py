@@ -50,9 +50,7 @@ class MangaDetailDialog(QDialog):
         """)
 
         self._setup_ui()
-
-        # Defer async loading to avoid task re-entrance with dialog.exec()
-        QTimer.singleShot(50, lambda: asyncio.ensure_future(self._load_data()))
+        self._data_loaded = False
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -170,8 +168,16 @@ class MangaDetailDialog(QDialog):
 
         layout.addWidget(splitter)
 
+    def showEvent(self, event):
+        """Trigger async data loading once the dialog is visible."""
+        super().showEvent(event)
+        if not self._data_loaded:
+            self._data_loaded = True
+            asyncio.ensure_future(self._load_data())
+
     async def _load_data(self):
         """Load manga details and chapter list."""
+        logger.info(f"Loading data for manga_id={self.manga_id}")
         try:
             # Try DB first
             self.manga = await self.app.db.get_manga(self.manga_id)
@@ -180,32 +186,37 @@ class MangaDetailDialog(QDialog):
 
             # Get source for this manga
             source = self.app.get_source_for_manga(self.manga_id)
-            if source:
-                # Refresh details from source
-                try:
-                    manga = await source.get_manga_details(self.manga_id)
-                    manga.source_id = source.source_id
-                    # Preserve library status
-                    if self.manga:
-                        manga.in_library = self.manga.in_library
-                    self.manga = manga
-                    await self.app.db.upsert_manga(manga)
-                    self._update_manga_info()
-                except Exception as e:
-                    logger.warning(f"Could not refresh manga details: {e}")
+            if not source:
+                logger.warning(f"No source found for manga {self.manga_id}")
+                self.chapters = await self.app.db.get_chapters(self.manga_id)
+                self._update_chapter_list()
+                return
 
-                # Load chapters
-                try:
-                    self.chapters = await source.get_chapter_list(self.manga_id)
-                    await self.app.db.upsert_chapters(self.chapters)
-                    self._update_chapter_list()
-                except Exception as e:
-                    logger.error(f"Failed to load chapters: {e}")
-                    # Try from DB
-                    self.chapters = await self.app.db.get_chapters(self.manga_id)
-                    self._update_chapter_list()
-            else:
-                # Load chapters from DB only
+            logger.info(f"Using source: {source.name}")
+
+            # Refresh details from source
+            try:
+                manga = await source.get_manga_details(self.manga_id)
+                manga.source_id = source.source_id
+                # Preserve library status
+                if self.manga:
+                    manga.in_library = self.manga.in_library
+                self.manga = manga
+                await self.app.db.upsert_manga(manga)
+                self._update_manga_info()
+            except Exception as e:
+                logger.warning(f"Could not refresh manga details: {e}")
+
+            # Load chapters
+            try:
+                logger.info(f"Fetching chapters for {self.manga_id}...")
+                self.chapters = await source.get_chapter_list(self.manga_id)
+                logger.info(f"Got {len(self.chapters)} chapters")
+                await self.app.db.upsert_chapters(self.chapters)
+                self._update_chapter_list()
+            except Exception as e:
+                logger.error(f"Failed to load chapters: {e}", exc_info=True)
+                # Try from DB
                 self.chapters = await self.app.db.get_chapters(self.manga_id)
                 self._update_chapter_list()
 
@@ -214,7 +225,7 @@ class MangaDetailDialog(QDialog):
                 await self._load_cover()
 
         except Exception as e:
-            logger.error(f"Failed to load manga detail: {e}")
+            logger.error(f"Failed to load manga detail: {e}", exc_info=True)
 
     def _update_manga_info(self):
         if not self.manga:

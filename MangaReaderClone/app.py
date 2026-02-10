@@ -100,11 +100,16 @@ def main():
         window.show()
 
         # Run the Qt event loop (qasync handles asyncio coroutines)
-        with loop:
+        # Note: do NOT use `with loop:` because it closes the loop on exit,
+        # preventing shutdown cleanup from running.
+        try:
             loop.run_forever()
-
-        # Cleanup after window closed
-        loop.run_until_complete(controller.shutdown())
+        finally:
+            try:
+                loop.run_until_complete(controller.shutdown())
+            except Exception:
+                pass
+            loop.close()
 
     except ImportError:
         logger.warning("qasync not found, using threaded asyncio fallback")
